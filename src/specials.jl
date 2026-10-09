@@ -614,24 +614,45 @@ function do_door(self, line, dtype, reverse=false)
     ok
 end
 
+function locked_blaze_door(self, line, thing, spec)
+    player = thing === nothing ? nothing : thing.player
+    player === nothing && return
+    if spec == 99 || spec == 133
+        need, skull, name = IT_BLUECARD, IT_BLUESKULL, "blue"
+    elseif spec == 134 || spec == 135
+        need, skull, name = IT_REDCARD, IT_REDSKULL, "red"
+    else
+        need, skull, name = IT_YELLOWCARD, IT_YELLOWSKULL, "yellow"
+    end
+    if !card(player, need) && !card(player, skull)
+        player.message = "You need a $name key to open this door"
+        hear(self, "oof")
+        return
+    end
+    if do_door(self, line, VLD_BLAZEOPEN, false)
+        change_switch(self, line, spec == 99 || spec == 134 || spec == 136)
+    end
+    nothing
+end
+
 function vertical_door(self, line, thing)
     player = thing === nothing ? nothing : thing.player
     spec = line.special
-    if player !== nothing && (spec == 26 || spec == 32 || spec == 99 || spec == 133)
+    if player !== nothing && (spec == 26 || spec == 32)
         if !card(player, IT_BLUECARD) && !card(player, IT_BLUESKULL)
             player.message = "You need a blue key to open this door"
             hear(self, "oof")
             return
         end
     end
-    if player !== nothing && (spec == 27 || spec == 34 || spec == 136 || spec == 137)
+    if player !== nothing && (spec == 27 || spec == 34)
         if !card(player, IT_YELLOWCARD) && !card(player, IT_YELLOWSKULL)
             player.message = "You need a yellow key to open this door"
             hear(self, "oof")
             return
         end
     end
-    if player !== nothing && (spec == 28 || spec == 33 || spec == 134 || spec == 135)
+    if player !== nothing && (spec == 28 || spec == 33)
         if !card(player, IT_REDCARD) && !card(player, IT_REDSKULL)
             player.message = "You need a red key to open this door"
             hear(self, "oof")
@@ -646,7 +667,7 @@ function vertical_door(self, line, thing)
         line.special = 0
     elseif spec == 117
         dtype = VLD_BLAZERAISE
-    elseif spec in (118, 99, 133, 134, 135, 136, 137)
+    elseif spec == 118
         dtype = VLD_BLAZEOPEN
         line.special = 0
     end
@@ -915,8 +936,12 @@ end
 function use_special(self, line, thing, side)
     side != 0 && return false
     spec = line.special
-    if spec in (1, 26, 27, 28, 31, 32, 33, 34, 99, 117, 118, 133, 134, 135, 136, 137)
+    if spec in (1, 26, 27, 28, 31, 32, 33, 34, 117, 118)
         vertical_door(self, line, thing)
+        return true
+    end
+    if spec in (99, 133, 134, 135, 136, 137)
+        locked_blaze_door(self, line, thing, spec)
         return true
     end
     if spec == 11
@@ -944,7 +969,7 @@ function use_special(self, line, thing, side)
         23 => () -> do_floor(self, line, lowest_floor, -1),
         71 => () -> do_floor(self, line, highest_floor, -1),
         101 => () -> do_floor(self, line, raise_floor_dest, 1),
-        102 => () -> do_floor(self, line, s -> hgt(s.floorheight) - 8 * FRACUNIT, -1),
+        102 => () -> do_floor(self, line, highest_floor, -1),
         7 => () -> do_stairs(self, line, 8 * FRACUNIT, fld(FLOORSPEED, 4)),
         127 => () -> do_stairs(self, line, 16 * FRACUNIT, FLOORSPEED * 4),
         41 => () -> do_crusher(self, line, CEIL_LOWERTOFLOOR),
@@ -967,7 +992,7 @@ function use_special(self, line, thing, side)
         116 => () -> door(VLD_BLAZECLOSE),
         120 => () -> do_plat_dwus(self, line, true),
         123 => () -> do_plat_dwus(self, line, true),
-        45 => () -> do_floor(self, line, s -> hgt(s.floorheight) - 8 * FRACUNIT, -1),
+        45 => () -> do_floor(self, line, highest_floor, -1),
         60 => () -> do_floor(self, line, lowest_floor, -1),
         64 => () -> do_floor(self, line, raise_floor_dest, 1),
         70 => () -> do_floor(self, line, highest_floor, -1, FLOORSPEED * 4),

@@ -490,16 +490,36 @@ function spawn_player_missile(world, source, kind)
     typ = MT_BFG
     kind == "rocket" && (typ = MT_ROCKET)
     kind == "plasma" && (typ = MT_PLASMA)
-    ang = source.angle
+    ang, slope = Collision.missile_aim(world, source)
     spd = info_at(typ).speed
     mo = spawn_mobj!(world, source.x, source.y, source.z + 32 * FRACUNIT, typ, nothing)
     mo.target = source
     mo.angle = ang
     mo.momx = Int(fixed_mul(spd, fine_cos(ang)))
     mo.momy = Int(fixed_mul(spd, fine_sin(ang)))
-    mo.momz = 0
+    mo.momz = Int(fixed_mul(spd, slope))
     check_missile_spawn(mo)
     mo
+end
+
+function missile_victim(world, mo)
+    spots = mo.tmx != mo.x || mo.tmy != mo.y ? ((mo.x, mo.y, mo.z), (mo.tmx, mo.tmy, mo.z)) : ((mo.x, mo.y, mo.z),)
+    best = nothing
+    best_dist = typemax(Int)
+    for other in world.mobjs
+        if mo.target !== nothing && Collision.same_species(mo.target, other) && other !== mo.target && other.typ != MT_PLAYER
+            continue
+        end
+        for (x, y, z) in spots
+            Collision.missile_reaches(mo, other, x, y, z) || continue
+            dist = max(abs(other.x - x), abs(other.y - y))
+            if dist < best_dist
+                best_dist = dist
+                best = other
+            end
+        end
+    end
+    best
 end
 
 function radius_attack(world, spot, source, damage, game)
@@ -521,7 +541,11 @@ function radius_attack(world, spot, source, damage, game)
 end
 
 function explode_missile(world, mo, game, hit)
-    if hit !== nothing
+    if hit === nothing
+        hit = mo.struck !== nothing ? mo.struck : missile_victim(world, mo)
+    end
+    mo.struck = nothing
+    if hit !== nothing && game !== nothing && game.damage_mobj !== nothing
         src = mo.target === nothing ? mo : mo.target
         dmg = mo.damage == 0 ? mi(mo).damage : mo.damage
         game.damage_mobj(hit, src, dmg * ((p_random() % 8) + 1), mo)

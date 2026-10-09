@@ -227,9 +227,14 @@ function begin_level(game)
     game.leveltime = 0
     game.turnheld = 0
     game.exit_wait = 0
+    game.mousex = 0
+    game.mousey = 0
+    game.mouse_fire = false
     game.gamestate = "view"
     println("mapa $(world.mapname)  linhas $(length(world.lines))  coisas $(length(world.mobjs))")
     play_level_music!(sound, game.episode, game.mapn)
+    empty!(sound.voices)
+    audio_clear()
 end
 
 function begin_exit(game)
@@ -437,6 +442,7 @@ println("Enter abre o menu. Setas andam, Ctrl atira, Espaco usa, Tab e o mapa.")
 println("O rato olha e o botao esquerdo atira. Fechar a janela sai.")
 try
     set_palette(screen, pal[1:768])
+    mouse_live = Ref(false)
     dirty = true
     accum = 0.0
     last = ticks()
@@ -508,6 +514,11 @@ try
                 ticker(menu) && (dirty = true)
                 if game.gamestate == "view" && game.player !== nothing && game.world !== nothing
                     game.automap !== nothing && Automap.ticker!(game.automap, game)
+                    if !mouse_live[]
+                        game.mousex = 0
+                        game.mousey = 0
+                        game.mouse_fire = false
+                    end
                     if menu.active
                         game.player.cmd = empty_cmd()
                         game.mousex = 0
@@ -560,7 +571,15 @@ try
         end
         dirty && (redraw(); dirty = false)
         update_sound!(sound)
-        mouse_relative(game.use_mouse && game.gamestate == "view" && !menu.active)
+        want_mouse = game.use_mouse && game.gamestate == "view" && !menu.active
+        if mouse_relative(want_mouse) || !want_mouse
+            mouse_live[] = false
+            game.mousex = 0
+            game.mousey = 0
+            game.mouse_fire = false
+        else
+            mouse_live[] = true
+        end
         opts.novsync || delay(1)
         fps_n += 1
         fps_now = ticks()

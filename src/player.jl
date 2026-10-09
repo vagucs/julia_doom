@@ -146,6 +146,9 @@ struct Atk
     flash::String
     flash_tics::Int
     light::Int
+    refire::Bool
+    Atk(body, tics, shot, flash, flash_tics, light, refire=false) =
+        new(body, tics, shot, flash, flash_tics, light, refire)
 end
 
 const WEAPON_ATK = Dict(
@@ -183,7 +186,7 @@ const WEAPON_ATK = Dict(
     ],
     WP_PLASMA => Atk[
         Atk("PLSGA0", 3, true, "PLSFA0", 4, 1),
-        Atk("PLSGB0", 20, false, "", 0, 0),
+        Atk("PLSGB0", 20, false, "", 0, 0, true),
     ],
     WP_BFG => Atk[
         Atk("BFGGA0", 20, false, "", 0, 0),
@@ -316,7 +319,7 @@ function spawn_player(world, start, cheats=0)
         angle=as_u32(fld(start.angle, 45) * 536870912),
         radius=PLAYER_RADIUS, height=PLAYER_HEIGHT,
         floorz=Int(sub.sector.floorheight), ceilingz=Int(sub.sector.ceilingheight),
-        flags=flags, health=100, sprite="PLAY", alive=true,
+        flags=flags, health=100, sprite="PLAY", alive=true, typ=0,
     )
     player = DoomPlayer(
         mo, empty_cmd(), PST_LIVE, mo.z + VIEWHEIGHT, VIEWHEIGHT, 0, 0,
@@ -523,7 +526,10 @@ function do_shot!(player, game, ammo_type)
     mo = player.mo
     weapon = player.readyweapon
     if mo !== nothing && (weapon == WP_MISSILE || weapon == WP_PLASMA || weapon == WP_BFG)
-        weapon == WP_PLASMA && p_random()
+        if weapon == WP_PLASMA
+            player.psprite_flash = band(p_random(), 1) != 0 ? "PLSFB0" : "PLSFA0"
+            player.flash_tics = 4
+        end
         if game !== nothing && game.fire_missile !== nothing
             kind = weapon == WP_MISSILE ? "rocket" : weapon == WP_PLASMA ? "plasma" : "bfg"
             game.fire_missile(game.world, mo, kind)
@@ -638,6 +644,10 @@ function enter_atk_step!(player, game, ammo_type, firing, can_fire)
             end
         else
             row = seq[player.psprite_step + 1]
+            if row.refire && firing && can_fire && player.pendingweapon == WP_NOCHANGE && player.health > 0
+                player.psprite_step = 0
+                continue
+            end
             player.psprite_body = row.body
             player.psprite_tics = row.tics
             if row.flash_tics != 0

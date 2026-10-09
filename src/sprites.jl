@@ -30,6 +30,7 @@ const FRACBITS = 16
 const SCREENWIDTH = 320
 const PIXELS = 64000
 const MF_SHADOW = 262144
+const MF_NOSECTOR = 8
 const MF_AMBUSH = 32
 const MTF_AMBUSH = 8
 const MINZ = 4 * 65536
@@ -89,6 +90,7 @@ mutable struct Mobj
     istate::Int
     spawnpoint::Any
     easy_skip::Bool
+    struck::Any
 end
 
 function new_mobj(;
@@ -108,6 +110,7 @@ function new_mobj(;
         false, nothing, nothing, 0, 0, 0,
         doomednum,
         reactiontime, lastlook, target, tracer, movedir, movecount, threshold, istate, spawnpoint, easy_skip,
+        nothing,
     )
 end
 
@@ -488,6 +491,7 @@ function draw!(r, world, fb::Vector{UInt8})
         mo isa Mobj || continue
         mo.player !== nothing && continue
         mo.sprite == "" && continue
+        band(mo.flags, MF_NOSECTOR) != 0 && continue
         item = project(r, mo)
         item === nothing && continue
         n += 1

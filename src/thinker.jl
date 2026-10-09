@@ -73,7 +73,12 @@ function spawn_mobj!(world, x, y, z, typ, game)
     end
     push!(world.mobjs, mo)
     set_thing_position!(world, mo)
-    set_mobj_state!(mo, row.spawnstate, world, game)
+    # O estado de spawn só copia quadro e tics. A_Look espera o ângulo do mapa.
+    st = state_at(row.spawnstate)
+    mo.istate = row.spawnstate
+    mo.tics = st.tics
+    mo.sprite = spr_name(st.sprite)
+    mo.frame = st.frame
     mo
 end
 

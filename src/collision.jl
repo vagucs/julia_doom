@@ -266,21 +266,19 @@ function pit_thing(world, tm, other, game)
         tm.momz = 0
         return false
     end
-    if has(tm.flags, MF_MISSILE)
-        (tm.z > other.z + other.height || tm.z + tm.height < other.z) && return true
-        target = tm.target
-        if target !== nothing && same_species(target, other)
-            other === target && return true
-            other.typ != MT_PLAYER && return false
+        if has(tm.flags, MF_MISSILE)
+            target = tm.target
+            if target !== nothing && same_species(target, other)
+                other === target && return true
+                other.typ != MT_PLAYER && return false
+            end
+            if !has(other.flags, MF_SHOOTABLE)
+                return !has(other.flags, MF_SOLID)
+            end
+            missile_reaches(tm, other, tm.tmx, tm.tmy, tm.z) || return true
+            tm.struck = other
+            return false
         end
-        if !has(other.flags, MF_SHOOTABLE)
-            return !has(other.flags, MF_SOLID)
-        end
-        dmg = ((p_random() % 8) + 1) * tm.damage
-        src = tm.target === nothing ? tm : tm.target
-        call_damage(game, other, src, dmg, tm)
-        return false
-    end
     if has(other.flags, MF_SPECIAL)
         solid = has(other.flags, MF_SOLID)
         if has(tm.flags, MF_PICKUP) && game !== nothing && game.touch_special !== nothing
@@ -589,6 +587,64 @@ function stairstep!(world, thing, game)
     nothing
 end
 
+function missile_reaches(mo, other, x, y, z)
+    (other === mo || other === mo.target || other.health <= 0) && return false
+    has(other.flags, MF_SHOOTABLE) || return false
+    reach = other.radius + mo.radius
+    (abs(other.x - x) >= reach || abs(other.y - y) >= reach) && return false
+    slack = 64 * FRACUNIT
+    z1 = z + mo.momz
+    low = min(z, z1) - slack
+    high = max(z, z1) + mo.height + slack
+    if z <= mo.floorz
+        low = min(low, mo.floorz - slack)
+        high = max(high, mo.floorz + slack)
+    end
+    low <= other.z + other.height && high >= other.z
+end
+
+mutable struct SlideBest
+    frac::Int
+    line::Any
+end
+
+function slide_blocks(thing, li)
+    if !has(li.flags, ML_TWOSIDED) || li.backsector === nothing || li.frontsector === nothing
+        return point_on_line_side(thing.x, thing.y, li) == 0
+    end
+    opentop, openbottom, _ = line_opening(li)
+    opentop - openbottom < thing.height && return true
+    opentop - thing.z < thing.height && return true
+    openbottom - thing.z > 24 * FRACUNIT && return true
+    has(li.flags, ML_BLOCKING)
+end
+
+function intercept_frac(x1, y1, x2, y2, line)
+    u = Float64(FRACUNIT)
+    ax, ay = x1 / u, y1 / u
+    bx, by = x2 / u, y2 / u
+    cx, cy = Float64(line.v1.x) / u, Float64(line.v1.y) / u
+    dx, dy = Float64(line.v2.x) / u, Float64(line.v2.y) / u
+    den = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx)
+    abs(den) < 1e-8 && return nothing
+    t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / den
+    v = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / den
+    (t < 0 || t > 1 || v < 0 || v > 1) && return nothing
+    Int(trunc(t * u))
+end
+
+function trace_slide_corner!(world, thing, x1, y1, x2, y2, best)
+    for ln in world.lines
+        frac = intercept_frac(x1, y1, x2, y2, ln)
+        (frac === nothing || frac < 0 || frac > FRACUNIT || !slide_blocks(thing, ln)) && continue
+        if frac < best.frac
+            best.frac = frac
+            best.line = ln
+        end
+    end
+    nothing
+end
+
 function hit_slide_line(thing, line, tmx, tmy)
     line.dy == 0 && return tmx, 0
     line.dx == 0 && return 0, tmy
@@ -634,54 +690,30 @@ function slide_move!(world, thing, momx, momy, game)
             leady = thing.y - thing.radius
             traily = thing.y + thing.radius
         end
-        bestfrac = FRACUNIT + 1
-        bestline = nothing
-        function slide_trav(inn)
-            li = inn.line
-            blocking = false
-            if !has(li.flags, ML_TWOSIDED)
-                point_on_line_side(thing.x, thing.y, li) != 0 && return true
-                blocking = true
-            else
-                opentop, openbottom, _ = line_opening(li)
-                if opentop - openbottom < thing.height
-                    blocking = true
-                elseif opentop - thing.z < thing.height
-                    blocking = true
-                elseif openbottom - thing.z > 24 * FRACUNIT
-                    blocking = true
-                end
-            end
-            blocking || return true
-            if inn.frac < bestfrac
-                bestfrac = inn.frac
-                bestline = li
-            end
-            false
-        end
+        best = SlideBest(FRACUNIT + 1, nothing)
         mx, my = thing.momx, thing.momy
-        path_traverse(world, leadx, leady, leadx + mx, leady + my, PT_ADDLINES, slide_trav)
-        path_traverse(world, trailx, leady, trailx + mx, leady + my, PT_ADDLINES, slide_trav)
-        path_traverse(world, leadx, traily, leadx + mx, traily + my, PT_ADDLINES, slide_trav)
-        if bestfrac == FRACUNIT + 1 || bestline === nothing
+        trace_slide_corner!(world, thing, leadx, leady, leadx + mx, leady + my, best)
+        trace_slide_corner!(world, thing, trailx, leady, trailx + mx, leady + my, best)
+        trace_slide_corner!(world, thing, leadx, traily, leadx + mx, traily + my, best)
+        if best.frac == FRACUNIT + 1 || best.line === nothing
             stairstep!(world, thing, game)
             return
         end
-        bestfrac -= 2048
-        if bestfrac > 0
-            newx = Int(fixed_mul(thing.momx, bestfrac))
-            newy = Int(fixed_mul(thing.momy, bestfrac))
+        best.frac -= 2048
+        if best.frac > 0
+            newx = Int(fixed_mul(thing.momx, best.frac))
+            newy = Int(fixed_mul(thing.momy, best.frac))
             if !try_move!(world, thing, thing.x + newx, thing.y + newy, game)
                 stairstep!(world, thing, game)
                 return
             end
         end
-        bestfrac = FRACUNIT - (bestfrac + 2048)
-        bestfrac > FRACUNIT && (bestfrac = FRACUNIT)
-        bestfrac <= 0 && return
-        tmx = Int(fixed_mul(thing.momx, bestfrac))
-        tmy = Int(fixed_mul(thing.momy, bestfrac))
-        tmx, tmy = hit_slide_line(thing, bestline, tmx, tmy)
+        best.frac = FRACUNIT - (best.frac + 2048)
+        best.frac > FRACUNIT && (best.frac = FRACUNIT)
+        best.frac <= 0 && return
+        tmx = Int(fixed_mul(thing.momx, best.frac))
+        tmy = Int(fixed_mul(thing.momy, best.frac))
+        tmx, tmy = hit_slide_line(thing, best.line, tmx, tmy)
         thing.momx = tmx
         thing.momy = tmy
         if try_move!(world, thing, thing.x + tmx, thing.y + tmy, game)
@@ -762,15 +794,21 @@ function aim(world, source, angle, attackrange)
     state[:slope], state[:target]
 end
 
-function bullet_slope(world, source)
+function missile_aim(world, source)
     base = source.angle
     span = 16 * 64 * FRACUNIT
-    angles = (base, as_u32(Int64(base) + 67108864), as_u32(Int64(base) - 67108864))
+    shifted = as_u32(Int64(base) + (1 << 26))
+    angles = (base, shifted, as_u32(Int64(shifted) - (2 << 26)))
     for ang in angles
         slope, target = aim(world, source, ang, span)
-        target !== nothing && return slope
+        target !== nothing && return ang, slope
     end
-    0
+    base, 0
+end
+
+function bullet_slope(world, source)
+    _, slope = missile_aim(world, source)
+    slope
 end
 
 function spawn_fx(world, x, y, z, sprite, momz)

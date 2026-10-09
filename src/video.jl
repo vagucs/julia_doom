@@ -15,7 +15,7 @@ module Video
 
 export init, shutdown, set_palette, present, poll, delay, ticks
 export set_crt!, mouse_relative, toggle_fullscreen
-export audio_open, audio_queue, audio_close
+export audio_open, audio_queue, audio_clear, audio_close
 export music_open, music_status, music_play, music_volume, music_close
 
 const SDL = raw"C:\msys64\ucrt64\bin\SDL2.dll"
@@ -135,9 +135,22 @@ function set_crt!(screen::Screen, on::Bool)
     nothing
 end
 
+relative_mouse = false
+
 function mouse_relative(on::Bool)
+    global relative_mouse
+    on == relative_mouse && return false
+    relative_mouse = on
     ccall((:SDL_SetRelativeMouseMode, SDL), Cint, (Cint,), on ? Cint(1) : Cint(0))
-    nothing
+    on || return false
+    ccall((:SDL_PumpEvents, SDL), Cvoid, ())
+    ccall((:SDL_FlushEvent, SDL), Cvoid, (UInt32,), MOUSEMOTION)
+    ccall((:SDL_FlushEvent, SDL), Cvoid, (UInt32,), MOUSEDOWN)
+    ccall((:SDL_FlushEvent, SDL), Cvoid, (UInt32,), MOUSEUP)
+    xref = Ref{Cint}(0)
+    yref = Ref{Cint}(0)
+    ccall((:SDL_GetRelativeMouseState, SDL), UInt32, (Ptr{Cint}, Ptr{Cint}), xref, yref)
+    true
 end
 
 fullscreen_on = false
@@ -380,6 +393,13 @@ function audio_queue(pcm::Vector{UInt8})
     queued > 11025 * 4 && return
     GC.@preserve pcm ccall((:SDL_QueueAudio, SDL), Cint,
         (UInt32, Ptr{Cvoid}, UInt32), audio_dev, pointer(pcm), UInt32(length(pcm)))
+    nothing
+end
+
+function audio_clear()
+    global audio_dev
+    audio_dev == 0 && return
+    ccall((:SDL_ClearQueuedAudio, SDL), Cvoid, (UInt32,), audio_dev)
     nothing
 end
 
